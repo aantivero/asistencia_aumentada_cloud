@@ -1,6 +1,7 @@
 # app_agip.py
 import streamlit as st
 import os
+import time
 from datetime import datetime
 from asistente_agip import AsistenteAGIP
 
@@ -107,10 +108,80 @@ custom_css = """
         background-color: var(--primary-light);
         color: var(--text-light);
     }
+    
+    .demo-mode-banner {
+        background-color: #FFF8E1;
+        color: #FF8F00;
+        padding: 10px 15px;
+        border-radius: 5px;
+        border-left: 4px solid #FFA000;
+        margin-bottom: 20px;
+    }
 </style>
 """
 
 st.markdown(custom_css, unsafe_allow_html=True)
+
+# Implementar respuestas de respaldo
+def get_fallback_response(question):
+    """Proporciona respuestas predefinidas cuando el modo de respaldo está activado"""
+    question_lower = question.lower()
+
+    if "exención" in question_lower or "exencion" in question_lower:
+        return (
+            "Para solicitar una exención por discapacidad en AGIP, necesitarás presentar:\n\n"
+            "1. Certificado Único de Discapacidad (CUD) vigente\n"
+            "2. DNI del titular y de la persona con discapacidad\n"
+            "3. Documentación que acredite la titularidad del bien (vehículo o inmueble)\n\n"
+            "Los trámites se pueden realizar en cualquier Centro de Atención AGIP con turno previo."
+        )
+    elif "documento" in question_lower or "requisito" in question_lower:
+        return (
+            "Los documentos necesarios para trámites por discapacidad incluyen:\n\n"
+            "- Certificado Único de Discapacidad vigente\n"
+            "- DNI de la persona con discapacidad y del titular del bien\n"
+            "- Título de propiedad o documentación del vehículo según corresponda\n"
+            "- Formulario de solicitud de exención completado\n\n"
+            "Recuerda que toda la documentación debe estar actualizada y en buen estado."
+        )
+    elif "donde" in question_lower or "dónde" in question_lower or "lugar" in question_lower:
+        return (
+            "Los trámites por discapacidad se pueden realizar en:\n\n"
+            "- Cualquier Centro de Atención AGIP (con turno previo)\n"
+            "- Algunos trámites pueden iniciarse online a través de la web oficial: https://www.agip.gob.ar/\n\n"
+            "Para mayor comodidad, te recomendamos sacar turno con anticipación a través del sistema de turnos online."
+        )
+    elif "impuesto" in question_lower or "tributo" in question_lower:
+        return (
+            "Las personas con discapacidad pueden solicitar exenciones en los siguientes impuestos:\n\n"
+            "- Impuesto automotor (para vehículos adaptados o destinados a traslado)\n"
+            "- ABL (Alumbrado, Barrido y Limpieza) para la vivienda única\n"
+            "- Patentes, en casos específicos\n\n"
+            "Cada impuesto tiene requisitos particulares que deben cumplirse."
+        )
+    elif "renovar" in question_lower or "renovación" in question_lower:
+        return (
+            "Para renovar una exención por discapacidad, debes:\n\n"
+            "1. Presentar el CUD actualizado (si estaba por vencer)\n"
+            "2. Completar el formulario de renovación de exención\n"
+            "3. Adjuntar comprobante de domicilio actualizado\n\n"
+            "Es importante iniciar el trámite antes del vencimiento de la exención actual."
+        )
+    elif "plazo" in question_lower or "vencimiento" in question_lower or "fecha" in question_lower:
+        return (
+            "Los plazos importantes para exenciones por discapacidad son:\n\n"
+            "- Las exenciones deben solicitarse dentro del año fiscal en curso\n"
+            "- La renovación debe realizarse antes del vencimiento del beneficio\n"
+            "- El CUD debe estar vigente durante todo el período de la exención\n\n"
+            "Te recomendamos iniciar los trámites con al menos 30 días de anticipación."
+        )
+    else:
+        return (
+            "En esta versión de demostración, puedo responder preguntas básicas sobre exenciones, "
+            "documentos requeridos, lugares de trámite e impuestos que pueden ser eximidos para "
+            "personas con discapacidad. Para información más específica, por favor consulta "
+            "directamente con AGIP en su sitio oficial: https://www.agip.gob.ar/ o llamando al 0800-999-2447."
+        )
 
 def display_messages():
     """Muestra los mensajes del chat con estilo"""
@@ -155,12 +226,22 @@ def process_input():
         # Obtener respuesta
         with st.session_state["thinking_spinner"], st.spinner("Procesando..."):
             try:
-                response = st.session_state["assistant"].answer_question(
-                    user_text,
-                    k=st.session_state.get("retrieval_k", 5)
-                )
+                if st.session_state.get("fallback_mode", False):
+                    # Simular tiempo de procesamiento en modo respaldo
+                    time.sleep(1)
+                    # Usar respuestas predefinidas
+                    response = get_fallback_response(user_text)
+                else:
+                    # Usar el asistente real
+                    response = st.session_state["assistant"].answer_question(
+                        user_text,
+                        k=st.session_state.get("retrieval_k", 5)
+                    )
             except Exception as e:
-                response = f"Lo siento, ocurrió un error: {str(e)}"
+                st.error(f"Error al procesar consulta: {str(e)}")
+                # Activar modo respaldo automáticamente si hay error
+                st.session_state["fallback_mode"] = True
+                response = "Lo siento, ha ocurrido un error al procesar tu consulta. Continuaré en modo de respaldo con información predefinida.\n\n" + get_fallback_response(user_text)
 
         # Agregar respuesta del asistente
         st.session_state["messages"].append((response, False, "neutral"))
@@ -174,37 +255,76 @@ def main():
     if len(st.session_state) == 0:
         st.session_state["messages"] = []
         st.session_state["user_input"] = ""
+        st.session_state["fallback_mode"] = False  # Añadir modo de respaldo
 
         # Inicializar el asistente
-    with st.spinner("Iniciando el asistente..."):
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            st.error("🚫 Error: No se ha configurado la clave API.")
-            st.info("Busque la variables")
-            st.stop()
+        with st.spinner("Iniciando el asistente..."):
+            api_key = os.environ.get("ANTHROPIC_API_KEY")
 
-        try:
-            st.session_state["assistant"] = AsistenteAGIP(claude_api_key=api_key)
-            st.session_state["messages"].append((
-                "¡Hola! Soy el asistente virtual de AGIP especializado en trámites y exenciones por discapacidad. "
-                "Puedo ayudarte a entender los requisitos, procedimientos y beneficios disponibles. "
-                "¿En qué puedo ayudarte hoy?",
-                False, "neutral"
-            ))
-        except Exception as e:
-            st.error(f"Error al iniciar el asistente: {str(e)}")
-            st.info("Por favor, verifica que las variables secretas estén correctamente configuradas.")
-            st.stop()
+            if not api_key:
+                st.warning("⚠️ No se ha configurado la clave API de Anthropic. Funcionando en modo de respaldo con respuestas predefinidas.")
+                st.session_state["fallback_mode"] = True
+                st.session_state["messages"].append((
+                    "¡Hola! Soy el asistente virtual de AGIP (versión de demostración). "
+                    "Puedo responder preguntas básicas sobre trámites y exenciones por discapacidad. "
+                    "¿En qué puedo ayudarte hoy?",
+                    False, "neutral"
+                ))
+            else:
+                try:
+                    st.session_state["assistant"] = AsistenteAGIP(claude_api_key=api_key)
+                    st.session_state["messages"].append((
+                        "¡Hola! Soy el asistente virtual de AGIP especializado en trámites y exenciones por discapacidad. "
+                        "Puedo ayudarte a entender los requisitos, procedimientos y beneficios disponibles. "
+                        "¿En qué puedo ayudarte hoy?",
+                        False, "neutral"
+                    ))
+                except Exception as e:
+                    st.error(f"Error al iniciar el asistente: {str(e)}")
+                    st.warning("Funcionando en modo de respaldo con respuestas predefinidas.")
+                    st.session_state["fallback_mode"] = True
+                    st.session_state["messages"].append((
+                        "¡Hola! Soy el asistente virtual de AGIP (versión de demostración). "
+                        "Puedo responder preguntas básicas sobre trámites y exenciones por discapacidad. "
+                        "¿En qué puedo ayudarte hoy?",
+                        False, "neutral"
+                    ))
+
+    # Mostrar banner de modo de respaldo si está activo
+    if st.session_state.get("fallback_mode", False):
+        st.markdown("""
+        <div class="demo-mode-banner">
+            <strong>Modo demostración activo</strong>: Funcionando con respuestas predefinidas. Las funciones de RAG y Claude API no están disponibles en este modo.
+        </div>
+        """, unsafe_allow_html=True)
 
     # Sidebar con configuración
     with st.sidebar:
         st.header("Configuración")
-        st.session_state["retrieval_k"] = st.slider(
-            "Número de documentos a consultar",
-            min_value=1,
-            max_value=10,
-            value=5
-        )
+
+        # En el modo de respaldo, permitir cambiar manualmente al modo normal
+        if st.session_state.get("fallback_mode", False):
+            if st.button("Intentar usar API de Claude"):
+                api_key = os.environ.get("ANTHROPIC_API_KEY")
+                if api_key:
+                    try:
+                        st.session_state["assistant"] = AsistenteAGIP(claude_api_key=api_key)
+                        st.session_state["fallback_mode"] = False
+                        st.success("¡Conectado a Claude API exitosamente!")
+                        st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Error al conectar con Claude API: {str(e)}")
+                else:
+                    st.error("No se ha configurado la clave API de Anthropic.")
+
+        # Control de número de documentos solo visible en modo normal
+        if not st.session_state.get("fallback_mode", False):
+            st.session_state["retrieval_k"] = st.slider(
+                "Número de documentos a consultar",
+                min_value=1,
+                max_value=10,
+                value=5
+            )
 
         if st.button("Limpiar conversación"):
             st.session_state["messages"] = [st.session_state["messages"][0]]  # Mantener solo el mensaje de bienvenida

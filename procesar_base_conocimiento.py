@@ -2,8 +2,8 @@
 from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_core.embeddings import Embeddings  # Importar la clase base
 from sklearn.feature_extraction.text import TfidfVectorizer
-from langchain_community.embeddings import SelfHostedEmbeddings
 import numpy as np
 import os
 import logging
@@ -11,29 +11,25 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Función para embeddings basada en TF-IDF
-def tfidf_embeddings(texts):
-    tfidf = TfidfVectorizer(max_features=768)
-    embeddings = tfidf.fit_transform(texts).toarray()
-    return embeddings
-
-# Clase para embeddings personalizados usando scikit-learn
-class SimpleEmbeddings:
+# Clase para embeddings personalizados implementando la interfaz correcta
+class SimpleEmbeddings(Embeddings):
     def __init__(self):
         self.tfidf = TfidfVectorizer(max_features=768)
         self.fitted = False
 
     def embed_documents(self, texts):
+        """Convierte documentos a vectores de embeddings"""
         if not self.fitted:
             self.tfidf.fit(texts)
             self.fitted = True
-        return self.tfidf.transform(texts).toarray().astype(np.float32)
+        return self.tfidf.transform(texts).toarray().astype(np.float32).tolist()
 
     def embed_query(self, text):
+        """Convierte una consulta a un vector de embedding"""
         if not self.fitted:
             self.tfidf.fit([text])
             self.fitted = True
-        return self.tfidf.transform([text]).toarray().astype(np.float32)[0]
+        return self.tfidf.transform([text]).toarray().astype(np.float32)[0].tolist()
 
 class ProcesadorPDFs:
     def __init__(self):

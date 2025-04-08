@@ -4,31 +4,48 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from langchain.schema.output_parser import StrOutputParser
+from langchain_core.embeddings import Embeddings
 from sklearn.feature_extraction.text import TfidfVectorizer
 import numpy as np
 import os
 import logging
+import traceback
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Clase para embeddings personalizados usando scikit-learn
-class SimpleEmbeddings:
-    def __init__(self):
-        self.tfidf = TfidfVectorizer(max_features=768)
+# Clase para embeddings personalizados implementando la interfaz correcta
+class SimpleEmbeddings(Embeddings):
+    def __init__(self, dimension=768):
+        self.tfidf = TfidfVectorizer(max_features=dimension)
         self.fitted = False
+        self.dimension = dimension
+        # Vectores predeterminados para casos donde falle la vectorización
+        self.default_vector = np.zeros(dimension).astype(np.float32).tolist()
 
     def embed_documents(self, texts):
-        if not self.fitted:
-            self.tfidf.fit(texts)
-            self.fitted = True
-        return self.tfidf.transform(texts).toarray().astype(np.float32)
+        """Convierte documentos a vectores de embeddings"""
+        try:
+            if not self.fitted:
+                self.tfidf.fit(texts)
+                self.fitted = True
+            return self.tfidf.transform(texts).toarray().astype(np.float32).tolist()
+        except Exception as e:
+            logger.error(f"Error en embed_documents: {e}")
+            # En caso de error, devolver vectores predeterminados
+            return [self.default_vector for _ in range(len(texts))]
 
     def embed_query(self, text):
-        if not self.fitted:
-            self.tfidf.fit([text])
-            self.fitted = True
-        return self.tfidf.transform([text]).toarray().astype(np.float32)[0]
+        """Convierte una consulta a un vector de embedding"""
+        try:
+            if not self.fitted:
+                self.tfidf.fit([text])
+                self.fitted = True
+            return self.tfidf.transform([text]).toarray().astype(np.float32)[0].tolist()
+        except Exception as e:
+            logger.error(f"Error en embed_query: {e}")
+            # En caso de error, devolver vector predeterminado
+            return self.default_vector
 
 class AsistenteAGIP:
     """Asistente para consultas sobre trámites y exenciones de AGIP utilizando Claude"""
@@ -43,30 +60,40 @@ class AsistenteAGIP:
             raise ValueError("No se ha proporcionado una clave API de Anthropic. Por favor, configura la variable de entorno ANTHROPIC_API_KEY o pasa la clave como parámetro.")
 
         # Inicializar Claude
-        self.model = ChatAnthropic(
-            model="claude-3-7-sonnet-20250219",
-            temperature=0.1,
-            anthropic_api_key=api_key,
-            max_tokens=1000
-        )
+        try:
+            self.model = ChatAnthropic(
+                model="claude-3-7-sonnet-20250219",
+                temperature=0.1,
+                anthropic_api_key=api_key,
+                max_tokens=1000
+            )
+            logger.info("Modelo ChatAnthropic inicializado correctamente")
+        except Exception as e:
+            logger.error(f"Error al inicializar ChatAnthropic: {e}")
+            logger.error(traceback.format_exc())
+            raise
 
         # Inicializar embeddings simples
-        self.embeddings = SimpleEmbeddings()
+        self.embeddings = SimpleEmbeddings(dimension=768)
 
         # Cargar base de conocimiento
-        if os.path.exists(knowledge_base_dir):
-            self.vector_store = FAISS.load_local(
-                folder_path=knowledge_base_dir,
-                embeddings=self.embeddings,
-                # Añadir este parámetro:
-                allow_dangerous_deserialization=True
-            )
-            self.retriever = self.vector_store.as_retriever(
-                search_kwargs={"k": 5}
-            )
-            logger.info(f"Base de conocimiento cargada desde {knowledge_base_dir}")
-        else:
-            raise ValueError(f"No se encontró la base de conocimiento en {knowledge_base_dir}")
+        try:
+            if os.path.exists(knowledge_base_dir):
+                self.vector_store = FAISS.load_local(
+                    folder_path=knowledge_base_dir,
+                    embeddings=self.embeddings,
+                    allow_dangerous_deserialization=True
+                )
+                self.retriever = self.vector_store.as_retriever(
+                    search_kwargs={"k": 5}
+                )
+                logger.info(f"Base de conocimiento cargada desde {knowledge_base_dir}")
+            else:
+                raise ValueError(f"No se encontró la base de conocimiento en {knowledge_base_dir}")
+        except Exception as e:
+            logger.error(f"Error al cargar la base de conocimiento: {e}")
+            logger.error(traceback.format_exc())
+            raise
 
         # Plantilla de prompt para consultas
         self.prompt = ChatPromptTemplate.from_template(
@@ -96,7 +123,7 @@ class AsistenteAGIP:
         # Historial de interacciones
         self.history = []
 
-    def answer_question(self, question, k=5, score_threshold=0.2):
+    def answer_question(self, question, k=5):
         """
         Responde a una pregunta usando RAG con la base de conocimiento
         """
@@ -108,7 +135,17 @@ class AsistenteAGIP:
 
         # Recuperar documentos relevantes
         try:
-            relevant_docs = self.retriever.get_relevant_documents(question)
+            logger.info(f"Buscando documentos relevantes para: {question}")
+
+            # Usar método deprecated pero más sólido para obtener documentos
+            try:
+                # Intentar primero con invoke
+                relevant_docs = self.retriever.invoke(question)
+            except Exception as e:
+                # Si falla, usar el método antiguo
+                logger.warning(f"Error al usar invoke, intentando con get_relevant_documents: {e}")
+                relevant_docs = self.retriever.get_relevant_documents(question)
+
             logger.info(f"Recuperados {len(relevant_docs)} documentos relevantes")
 
             if not relevant_docs:
@@ -117,6 +154,7 @@ class AsistenteAGIP:
                 return response
 
             # Crear contexto combinado
+            logger.info("Construyendo contexto a partir de documentos relevantes")
             context = "\n\n---\n\n".join([
                 f"[Documento: {doc.metadata.get('source', 'Desconocido')}, "
                 f"Página: {doc.metadata.get('page', 'N/A')}]\n{doc.page_content}"
@@ -130,6 +168,7 @@ class AsistenteAGIP:
             }
 
             # Ejecutar el chain
+            logger.info("Invocando el modelo Claude para generar respuesta")
             chain = (
                     RunnablePassthrough()
                     | self.prompt
@@ -137,7 +176,13 @@ class AsistenteAGIP:
                     | StrOutputParser()
             )
 
-            response = chain.invoke(formatted_input)
+            try:
+                response = chain.invoke(formatted_input)
+                logger.info("Respuesta generada correctamente")
+            except Exception as e:
+                logger.error(f"Error al generar respuesta con Claude: {e}")
+                logger.error(traceback.format_exc())
+                raise
 
             # Guardar en historial
             self.history.append((question, response))
@@ -146,7 +191,9 @@ class AsistenteAGIP:
 
         except Exception as e:
             logger.error(f"Error al responder: {e}")
-            return f"Lo siento, ocurrió un error al procesar tu consulta. Por favor, intenta nuevamente o contacta directamente con AGIP."
+            logger.error(traceback.format_exc())  # Añadir stack trace completo
+            # Enviar mensaje más genérico al usuario
+            return f"Lo siento, ocurrió un error al procesar tu consulta. Por favor, intenta nuevamente con otra pregunta o contacta directamente con AGIP al 0800-999-2447."
 
     def get_history(self):
         """Devuelve el historial de conversación"""
