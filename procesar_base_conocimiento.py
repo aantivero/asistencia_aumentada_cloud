@@ -2,40 +2,59 @@
 from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_core.embeddings import Embeddings  # Importar la clase base
+from langchain_core.embeddings import Embeddings
 from sklearn.feature_extraction.text import TfidfVectorizer
 import numpy as np
 import os
 import logging
+import shutil
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Clase para embeddings personalizados implementando la interfaz correcta
+# Clase para embeddings personalizados - IDÉNTICA a la de asistente_agip.py
 class SimpleEmbeddings(Embeddings):
-    def __init__(self):
-        self.tfidf = TfidfVectorizer(max_features=768)
+    def __init__(self, dimension=768):
+        self.dimension = dimension
+        self.tfidf = TfidfVectorizer(max_features=dimension)
         self.fitted = False
+        self.default_vector = np.zeros(dimension).astype(np.float32).tolist()
+
+    def _ensure_dimension(self, vector):
+        """Asegura que el vector tenga la dimensión correcta"""
+        if len(vector) < self.dimension:
+            return vector + [0.0] * (self.dimension - len(vector))
+        elif len(vector) > self.dimension:
+            return vector[:self.dimension]
+        return vector
 
     def embed_documents(self, texts):
-        """Convierte documentos a vectores de embeddings"""
-        if not self.fitted:
-            self.tfidf.fit(texts)
-            self.fitted = True
-        return self.tfidf.transform(texts).toarray().astype(np.float32).tolist()
+        try:
+            if not self.fitted:
+                self.tfidf.fit(texts)
+                self.fitted = True
+
+            vectors = self.tfidf.transform(texts).toarray().astype(np.float32)
+            return [self._ensure_dimension(v.tolist()) for v in vectors]
+        except Exception as e:
+            return [self.default_vector for _ in texts]
 
     def embed_query(self, text):
-        """Convierte una consulta a un vector de embedding"""
-        if not self.fitted:
-            self.tfidf.fit([text])
-            self.fitted = True
-        return self.tfidf.transform([text]).toarray().astype(np.float32)[0].tolist()
+        try:
+            if not self.fitted:
+                self.tfidf.fit([text])
+                self.fitted = True
+
+            vector = self.tfidf.transform([text]).toarray()[0].astype(np.float32)
+            return self._ensure_dimension(vector.tolist())
+        except Exception as e:
+            return self.default_vector
 
 class ProcesadorPDFs:
     def __init__(self):
         """Inicializa el procesador de PDFs con embeddings simples"""
         # Configurar embeddings
-        self.embeddings = SimpleEmbeddings()
+        self.embeddings = SimpleEmbeddings(dimension=768)
 
         # Configurar divisor de texto
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -80,6 +99,11 @@ class ProcesadorPDFs:
         # Dividir documentos en chunks
         chunks = self.text_splitter.split_documents(all_docs)
         logger.info(f"Se crearon {len(chunks)} fragmentos de texto")
+
+        # Limpiar directorio de salida si existe
+        if os.path.exists(directorio_salida):
+            logger.info(f"Eliminando directorio de salida existente: {directorio_salida}")
+            shutil.rmtree(directorio_salida)
 
         # Crear vector store con FAISS
         vector_store = FAISS.from_documents(

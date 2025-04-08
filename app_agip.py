@@ -227,21 +227,23 @@ def process_input():
         with st.session_state["thinking_spinner"], st.spinner("Procesando..."):
             try:
                 if st.session_state.get("fallback_mode", False):
-                    # Simular tiempo de procesamiento en modo respaldo
-                    time.sleep(1)
-                    # Usar respuestas predefinidas
+                    # Modo de respaldo ya activado
+                    time.sleep(1)  # Simular procesamiento
                     response = get_fallback_response(user_text)
                 else:
-                    # Usar el asistente real
-                    response = st.session_state["assistant"].answer_question(
-                        user_text,
-                        k=st.session_state.get("retrieval_k", 5)
-                    )
+                    # Intentar usar el asistente real
+                    try:
+                        response = st.session_state["assistant"].answer_question(
+                            user_text,
+                            k=st.session_state.get("retrieval_k", 5)
+                        )
+                    except Exception as e:
+                        # Si falla, activar modo de respaldo
+                        st.warning(f"Error en la búsqueda. Activando modo de respaldo.")
+                        st.session_state["fallback_mode"] = True
+                        response = get_fallback_response(user_text)
             except Exception as e:
-                st.error(f"Error al procesar consulta: {str(e)}")
-                # Activar modo respaldo automáticamente si hay error
-                st.session_state["fallback_mode"] = True
-                response = "Lo siento, ha ocurrido un error al procesar tu consulta. Continuaré en modo de respaldo con información predefinida.\n\n" + get_fallback_response(user_text)
+                response = f"Lo siento, ocurrió un error: {str(e)}"
 
         # Agregar respuesta del asistente
         st.session_state["messages"].append((response, False, "neutral"))

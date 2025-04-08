@@ -17,34 +17,39 @@ logger = logging.getLogger(__name__)
 # Clase para embeddings personalizados implementando la interfaz correcta
 class SimpleEmbeddings(Embeddings):
     def __init__(self, dimension=768):
+        self.dimension = dimension
         self.tfidf = TfidfVectorizer(max_features=dimension)
         self.fitted = False
-        self.dimension = dimension
-        # Vectores predeterminados para casos donde falle la vectorización
         self.default_vector = np.zeros(dimension).astype(np.float32).tolist()
 
+    def _ensure_dimension(self, vector):
+        """Asegura que el vector tenga la dimensión correcta"""
+        if len(vector) < self.dimension:
+            return vector + [0.0] * (self.dimension - len(vector))
+        elif len(vector) > self.dimension:
+            return vector[:self.dimension]
+        return vector
+
     def embed_documents(self, texts):
-        """Convierte documentos a vectores de embeddings"""
         try:
             if not self.fitted:
                 self.tfidf.fit(texts)
                 self.fitted = True
-            return self.tfidf.transform(texts).toarray().astype(np.float32).tolist()
+
+            vectors = self.tfidf.transform(texts).toarray().astype(np.float32)
+            return [self._ensure_dimension(v.tolist()) for v in vectors]
         except Exception as e:
-            logger.error(f"Error en embed_documents: {e}")
-            # En caso de error, devolver vectores predeterminados
-            return [self.default_vector for _ in range(len(texts))]
+            return [self.default_vector for _ in texts]
 
     def embed_query(self, text):
-        """Convierte una consulta a un vector de embedding"""
         try:
             if not self.fitted:
                 self.tfidf.fit([text])
                 self.fitted = True
-            return self.tfidf.transform([text]).toarray().astype(np.float32)[0].tolist()
+
+            vector = self.tfidf.transform([text]).toarray()[0].astype(np.float32)
+            return self._ensure_dimension(vector.tolist())
         except Exception as e:
-            logger.error(f"Error en embed_query: {e}")
-            # En caso de error, devolver vector predeterminado
             return self.default_vector
 
 class AsistenteAGIP:
@@ -137,14 +142,23 @@ class AsistenteAGIP:
         try:
             logger.info(f"Buscando documentos relevantes para: {question}")
 
-            # Usar método deprecated pero más sólido para obtener documentos
+            # Enfoque directo: si hay errores, fallar rápido
+            relevant_docs = []
             try:
-                # Intentar primero con invoke
-                relevant_docs = self.retriever.invoke(question)
+                # Crear consulta directamente con la misma clase de embeddings
+                query_embedding = self.embeddings.embed_query(question)
+                # Usar el método search_by_vector directamente
+                docs_and_scores = self.vector_store.similarity_search_with_score_by_vector(
+                    query_embedding, k=k
+                )
+                # Extraer solo los documentos
+                relevant_docs = [doc for doc, _ in docs_and_scores]
+                logger.info(f"Búsqueda exitosa con similarity_search_with_score_by_vector")
             except Exception as e:
-                # Si falla, usar el método antiguo
-                logger.warning(f"Error al usar invoke, intentando con get_relevant_documents: {e}")
-                relevant_docs = self.retriever.get_relevant_documents(question)
+                logger.error(f"Error en similarity_search_with_score_by_vector: {e}")
+                logger.error(traceback.format_exc())
+                # No reintentamos, dejamos que la excepción se propague al try/except exterior
+                raise
 
             logger.info(f"Recuperados {len(relevant_docs)} documentos relevantes")
 
