@@ -357,20 +357,20 @@ def main():
             with col1:
                 if st.button("¿Qué documentos necesito para solicitar la exención por discapacidad?"):
                     st.session_state["user_input"] = "¿Qué documentos necesito para solicitar la exención por discapacidad?"
-                    process_input()
+                    #process_input()
 
                 if st.button("¿Dónde puedo realizar los trámites por discapacidad?"):
                     st.session_state["user_input"] = "¿Dónde puedo realizar los trámites por discapacidad?"
-                    process_input()
+                    #process_input()
 
             with col2:
                 if st.button("¿Qué impuestos pueden ser eximidos por discapacidad?"):
                     st.session_state["user_input"] = "¿Qué impuestos pueden ser eximidos por discapacidad?"
-                    process_input()
+                    #process_input()
 
                 if st.button("¿Cuál es el proceso para renovar una exención?"):
                     st.session_state["user_input"] = "¿Cuál es el proceso para renovar una exención?"
-                    process_input()
+                    #process_input()
 
 if __name__ == "__main__":
     main()
