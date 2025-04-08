@@ -1,47 +1,68 @@
 # asistente_agip.py
 from langchain_anthropic import ChatAnthropic
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from langchain.schema.output_parser import StrOutputParser
+from sklearn.feature_extraction.text import TfidfVectorizer
+import numpy as np
 import os
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class AsistenteAGIP:
-    """Asistente para consultas sobre trámites y exenciones de AGIP utilizando Claude y OpenAI embeddings"""
+# Clase para embeddings personalizados usando scikit-learn
+class SimpleEmbeddings:
+    def __init__(self):
+        self.tfidf = TfidfVectorizer(max_features=768)
+        self.fitted = False
 
-    def __init__(self, claude_api_key=None, openai_api_key=None,
-                 knowledge_base_dir="chroma_db_agip_discapacidad"):
+    def embed_documents(self, texts):
+        if not self.fitted:
+            self.tfidf.fit(texts)
+            self.fitted = True
+        return self.tfidf.transform(texts).toarray().astype(np.float32)
+
+    def embed_query(self, text):
+        if not self.fitted:
+            self.tfidf.fit([text])
+            self.fitted = True
+        return self.tfidf.transform([text]).toarray().astype(np.float32)[0]
+
+class AsistenteAGIP:
+    """Asistente para consultas sobre trámites y exenciones de AGIP utilizando Claude"""
+
+    def __init__(self, claude_api_key=None, knowledge_base_dir="faiss_index"):
         """
         Inicializa el asistente con Claude y la base de conocimiento
         """
+        # Verificar clave API
+        api_key = claude_api_key or os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError("No se ha proporcionado una clave API de Anthropic. Por favor, configura la variable de entorno ANTHROPIC_API_KEY o pasa la clave como parámetro.")
+
         # Inicializar Claude
         self.model = ChatAnthropic(
             model="claude-3-7-sonnet-20250219",
             temperature=0.1,
-            anthropic_api_key=claude_api_key or os.environ.get("ANTHROPIC_API_KEY"),
+            anthropic_api_key=api_key,
             max_tokens=1000
         )
 
-        # Inicializar embeddings con OpenAI
-        self.embeddings = OpenAIEmbeddings(
-            model="text-embedding-3-small",
-            openai_api_key=openai_api_key or os.environ.get("OPENAI_API_KEY")
-        )
+        # Inicializar embeddings simples
+        self.embeddings = SimpleEmbeddings()
 
         # Cargar base de conocimiento
         if os.path.exists(knowledge_base_dir):
-            self.vector_store = Chroma(
-                persist_directory=knowledge_base_dir,
-                embedding_function=self.embeddings
+            self.vector_store = FAISS.load_local(
+                folder_path=knowledge_base_dir,
+                embeddings=self.embeddings,
+                # Añadir este parámetro:
+                allow_dangerous_deserialization=True
             )
             self.retriever = self.vector_store.as_retriever(
-                search_type="similarity_score_threshold",
-                search_kwargs={"k": 5, "score_threshold": 0.2}
+                search_kwargs={"k": 5}
             )
             logger.info(f"Base de conocimiento cargada desde {knowledge_base_dir}")
         else:
@@ -80,10 +101,9 @@ class AsistenteAGIP:
         Responde a una pregunta usando RAG con la base de conocimiento
         """
         # Configurar retriever si se modifican los parámetros
-        if k != 5 or score_threshold != 0.2:
+        if k != 5:
             self.retriever = self.vector_store.as_retriever(
-                search_type="similarity_score_threshold",
-                search_kwargs={"k": k, "score_threshold": score_threshold}
+                search_kwargs={"k": k}
             )
 
         # Recuperar documentos relevantes

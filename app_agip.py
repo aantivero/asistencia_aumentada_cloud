@@ -157,8 +157,7 @@ def process_input():
             try:
                 response = st.session_state["assistant"].answer_question(
                     user_text,
-                    k=st.session_state.get("retrieval_k", 5),
-                    score_threshold=st.session_state.get("retrieval_threshold", 0.2)
+                    k=st.session_state.get("retrieval_k", 5)
                 )
             except Exception as e:
                 response = f"Lo siento, ocurrió un error: {str(e)}"
@@ -177,18 +176,25 @@ def main():
         st.session_state["user_input"] = ""
 
         # Inicializar el asistente
-        with st.spinner("Iniciando el asistente..."):
-            try:
-                st.session_state["assistant"] = AsistenteAGIP()
-                st.session_state["messages"].append((
-                    "¡Hola! Soy el asistente virtual de AGIP especializado en trámites y exenciones por discapacidad. "
-                    "Puedo ayudarte a entender los requisitos, procedimientos y beneficios disponibles. "
-                    "¿En qué puedo ayudarte hoy?",
-                    False, "neutral"
-                ))
-            except Exception as e:
-                st.error(f"Error al iniciar el asistente: {e}")
-                st.stop()
+    with st.spinner("Iniciando el asistente..."):
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            st.error("🚫 Error: No se ha configurado la clave API.")
+            st.info("Busque la variables")
+            st.stop()
+
+        try:
+            st.session_state["assistant"] = AsistenteAGIP(claude_api_key=api_key)
+            st.session_state["messages"].append((
+                "¡Hola! Soy el asistente virtual de AGIP especializado en trámites y exenciones por discapacidad. "
+                "Puedo ayudarte a entender los requisitos, procedimientos y beneficios disponibles. "
+                "¿En qué puedo ayudarte hoy?",
+                False, "neutral"
+            ))
+        except Exception as e:
+            st.error(f"Error al iniciar el asistente: {str(e)}")
+            st.info("Por favor, verifica que las variables secretas estén correctamente configuradas.")
+            st.stop()
 
     # Sidebar con configuración
     with st.sidebar:
@@ -198,13 +204,6 @@ def main():
             min_value=1,
             max_value=10,
             value=5
-        )
-        st.session_state["retrieval_threshold"] = st.slider(
-            "Umbral de relevancia",
-            min_value=0.0,
-            max_value=1.0,
-            value=0.2,
-            step=0.05
         )
 
         if st.button("Limpiar conversación"):

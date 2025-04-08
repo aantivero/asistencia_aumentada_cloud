@@ -1,23 +1,45 @@
 # procesar_base_conocimiento.py
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores.utils import filter_complex_metadata
+from sklearn.feature_extraction.text import TfidfVectorizer
+from langchain_community.embeddings import SelfHostedEmbeddings
+import numpy as np
 import os
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Función para embeddings basada en TF-IDF
+def tfidf_embeddings(texts):
+    tfidf = TfidfVectorizer(max_features=768)
+    embeddings = tfidf.fit_transform(texts).toarray()
+    return embeddings
+
+# Clase para embeddings personalizados usando scikit-learn
+class SimpleEmbeddings:
+    def __init__(self):
+        self.tfidf = TfidfVectorizer(max_features=768)
+        self.fitted = False
+
+    def embed_documents(self, texts):
+        if not self.fitted:
+            self.tfidf.fit(texts)
+            self.fitted = True
+        return self.tfidf.transform(texts).toarray().astype(np.float32)
+
+    def embed_query(self, text):
+        if not self.fitted:
+            self.tfidf.fit([text])
+            self.fitted = True
+        return self.tfidf.transform([text]).toarray().astype(np.float32)[0]
+
 class ProcesadorPDFs:
-    def __init__(self, openai_api_key=None):
-        """Inicializa el procesador de PDFs con embeddings de OpenAI"""
+    def __init__(self):
+        """Inicializa el procesador de PDFs con embeddings simples"""
         # Configurar embeddings
-        self.embeddings = OpenAIEmbeddings(
-            model="text-embedding-3-small",
-            openai_api_key=openai_api_key or os.environ.get("OPENAI_API_KEY")
-        )
+        self.embeddings = SimpleEmbeddings()
 
         # Configurar divisor de texto
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -27,7 +49,7 @@ class ProcesadorPDFs:
             keep_separator=True
         )
 
-    def procesar_directorio(self, directorio_pdfs, directorio_salida="chroma_db_agip_discapacidad"):
+    def procesar_directorio(self, directorio_pdfs, directorio_salida="faiss_index"):
         """Procesa todos los PDFs en un directorio"""
         logger.info(f"Procesando PDFs en {directorio_pdfs}")
 
@@ -61,16 +83,19 @@ class ProcesadorPDFs:
 
         # Dividir documentos en chunks
         chunks = self.text_splitter.split_documents(all_docs)
-        chunks = filter_complex_metadata(chunks)
         logger.info(f"Se crearon {len(chunks)} fragmentos de texto")
 
-        # Crear vector store
-        vector_store = Chroma.from_documents(
+        # Crear vector store con FAISS
+        vector_store = FAISS.from_documents(
             documents=chunks,
-            embedding=self.embeddings,
-            persist_directory=directorio_salida
+            embedding=self.embeddings
         )
-        vector_store.persist()
+
+        # Guardar el índice FAISS
+        if not os.path.exists(directorio_salida):
+            os.makedirs(directorio_salida)
+
+        vector_store.save_local(directorio_salida)
 
         logger.info(f"Base de conocimiento creada exitosamente en {directorio_salida}")
         return vector_store
@@ -81,10 +106,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Procesa PDFs para crear una base de conocimiento vectorial")
     parser.add_argument("--dir", required=True, help="Directorio donde se encuentran los PDFs")
-    parser.add_argument("--output", default="chroma_db_agip_discapacidad", help="Directorio donde guardar la base de conocimiento")
-    parser.add_argument("--api_key", help="OpenAI API Key (opcional, también puede usar la variable de entorno OPENAI_API_KEY)")
+    parser.add_argument("--output", default="faiss_index", help="Directorio donde guardar la base de conocimiento")
 
     args = parser.parse_args()
 
-    procesador = ProcesadorPDFs(openai_api_key=args.api_key)
+    procesador = ProcesadorPDFs()
     procesador.procesar_directorio(args.dir, args.output)

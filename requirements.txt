@@ -1,8 +1,7 @@
 streamlit>=1.30.0
 langchain>=0.1.6
-langchain_anthropic>=0.1.1
-langchain_community>=0.0.18
-langchain_openai>=0.0.2
+langchain-anthropic>=0.1.1
+langchain-community>=0.0.18
 pypdf>=3.17.1
 faiss-cpu>=1.7.4
-sentence-transformers>=2.2.2
+scikit-learn>=1.2.0
