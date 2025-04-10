@@ -7,8 +7,8 @@ from asistente_agip import AsistenteAGIP
 
 # Configuración de la página
 st.set_page_config(
-    page_title="AGIP - Asistente Trámites Discapacidad",
-    page_icon="♿",
+    page_title="AGIP - Asistente Trámites",
+    page_icon="https://agip.gob.ar/favicon.jpg",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -250,8 +250,8 @@ def process_input():
 
 def main():
     """Función principal de la aplicación"""
-    st.title("Asistente AGIP - Trámites y Exenciones por Discapacidad")
-    st.markdown("<p style='color: var(--secondary);'>Información sobre trámites, beneficios y exenciones para personas con discapacidad</p>", unsafe_allow_html=True)
+    st.title("Asistente AGIP - Trámites y Exenciones ")
+    st.markdown("<p style='color: var(--secondary);'>Información sobre trámites, beneficios y exenciones</p>", unsafe_allow_html=True)
 
     # Inicializar el estado de la sesión
     if len(st.session_state) == 0:
@@ -268,7 +268,7 @@ def main():
                 st.session_state["fallback_mode"] = True
                 st.session_state["messages"].append((
                     "¡Hola! Soy el asistente virtual de AGIP (versión de demostración). "
-                    "Puedo responder preguntas básicas sobre trámites y exenciones por discapacidad. "
+                    "Puedo responder preguntas básicas sobre trámites y exenciones."
                     "¿En qué puedo ayudarte hoy?",
                     False, "neutral"
                 ))
@@ -276,7 +276,7 @@ def main():
                 try:
                     st.session_state["assistant"] = AsistenteAGIP(claude_api_key=api_key)
                     st.session_state["messages"].append((
-                        "¡Hola! Soy el asistente virtual de AGIP especializado en trámites y exenciones por discapacidad. "
+                        "¡Hola! Soy el asistente virtual de AGIP especializado en trámites y exenciones. "
                         "Puedo ayudarte a entender los requisitos, procedimientos y beneficios disponibles. "
                         "¿En qué puedo ayudarte hoy?",
                         False, "neutral"
@@ -287,7 +287,7 @@ def main():
                     st.session_state["fallback_mode"] = True
                     st.session_state["messages"].append((
                         "¡Hola! Soy el asistente virtual de AGIP (versión de demostración). "
-                        "Puedo responder preguntas básicas sobre trámites y exenciones por discapacidad. "
+                        "Puedo responder preguntas básicas sobre trámites y exenciones. "
                         "¿En qué puedo ayudarte hoy?",
                         False, "neutral"
                     ))
